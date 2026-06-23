@@ -79,6 +79,11 @@ export async function apiGetMatchedPosts(profile: SearchProfile): Promise<Matche
   return data.posts;
 }
 
+export async function apiGetAllPosts(): Promise<MatchedPost[]> {
+  const data = await jsonOrThrow<{ posts: MatchedPost[] }>(await fetch("/api/posts"));
+  return data.posts;
+}
+
 export async function apiGetScrapeStatus(): Promise<ScrapeStatus> {
   const data = await jsonOrThrow<{ scrape: ScrapeStatus }>(await fetch("/api/scrape"));
   return data.scrape;
