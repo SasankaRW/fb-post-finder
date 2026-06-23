@@ -1,5 +1,17 @@
 {
-  "locations": [],
-  "keywords": [],
-  "groupIds": []
+  "locations": [
+    "Malabe"
+  ],
+  "mustKeywords": [
+    "2 rooms"
+  ],
+  "goodKeywords": [
+    "annex",
+    "apartment"
+  ],
+  "groupIds": [],
+  "priceMinLkr": 20000,
+  "priceMaxLkr": 60000,
+  "includeUnpriced": true,
+  "maxAgeHours": 72
 }

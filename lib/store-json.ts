@@ -10,8 +10,10 @@ const PROFILE_FILE = path.join(DATA_DIR, "profile.json");
 
 const DEFAULT_PROFILE: SearchProfile = {
   locations: [],
-  keywords: [],
+  mustKeywords: [],
+  goodKeywords: [],
   groupIds: SEED_GROUPS.map((g) => g.id),
+  includeUnpriced: true,
 };
 
 async function ensureDir() {
@@ -81,7 +83,23 @@ export async function upsertPosts(incoming: Post[]): Promise<{ added: number; to
 }
 
 export async function getProfile(): Promise<SearchProfile> {
-  return readJsonOrSeed<SearchProfile>(PROFILE_FILE, DEFAULT_PROFILE);
+  const raw = (await readJsonOrSeed<Record<string, unknown>>(
+    PROFILE_FILE,
+    DEFAULT_PROFILE as unknown as Record<string, unknown>,
+  )) as Partial<SearchProfile> & { keywords?: string[] };
+  // Legacy migration: old profile.json had a single `keywords` field. Treat it as must-have.
+  const mustKeywords = raw.mustKeywords ?? raw.keywords ?? [];
+  const goodKeywords = raw.goodKeywords ?? [];
+  return {
+    locations: raw.locations ?? [],
+    mustKeywords,
+    goodKeywords,
+    groupIds: raw.groupIds ?? [],
+    priceMinLkr: raw.priceMinLkr,
+    priceMaxLkr: raw.priceMaxLkr,
+    includeUnpriced: raw.includeUnpriced ?? true,
+    maxAgeHours: raw.maxAgeHours,
+  };
 }
 
 export async function saveProfile(profile: SearchProfile): Promise<SearchProfile> {

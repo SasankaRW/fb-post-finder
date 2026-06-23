@@ -20,17 +20,22 @@ export const SUGGESTED_LOCATIONS = [
   "Nugegoda",
 ];
 
-export const SUGGESTED_KEYWORDS = [
-  "annex",
-  "annexe",
-  "house",
-  "apartment",
+// "Must have" suggestions — hard requirements you want present in every match.
+export const SUGGESTED_MUST_KEYWORDS = [
   "2 rooms",
   "two rooms",
   "2 bedroom",
   "kitchen",
   "attached bathroom",
   "parking",
+];
+
+// "Good to have" suggestions — alternatives where matching any one is enough.
+export const SUGGESTED_GOOD_KEYWORDS = [
+  "annex",
+  "annexe",
+  "house",
+  "apartment",
   "furnished",
   "unfurnished",
 ];

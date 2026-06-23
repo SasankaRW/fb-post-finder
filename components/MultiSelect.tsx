@@ -31,12 +31,28 @@ export function MultiSelect({
       .slice(0, 8);
   }, [input, suggestions, selected]);
 
-  function add(value: string) {
-    const v = value.trim();
-    if (!v) return;
-    if (selected.some((s) => s.toLowerCase() === v.toLowerCase())) return;
-    onChange([...selected, v]);
+  function addMany(values: string[]) {
+    const lowerSelected = new Set(selected.map((s) => s.toLowerCase()));
+    const next = [...selected];
+    for (const raw of values) {
+      const v = raw.trim();
+      if (!v) continue;
+      if (lowerSelected.has(v.toLowerCase())) continue;
+      lowerSelected.add(v.toLowerCase());
+      next.push(v);
+    }
+    if (next.length !== selected.length) onChange(next);
     setInput("");
+  }
+
+  function addCurrentInput() {
+    if (filtered[0] && !input.includes(",")) {
+      // Suggestion match wins over raw text when no comma typed.
+      addMany([filtered[0]]);
+    } else if (allowCustom) {
+      // Supports bulk: "Malabe, Kaduwela, Athurugiriya"
+      addMany(input.split(","));
+    }
   }
 
   function remove(value: string) {
@@ -44,10 +60,9 @@ export function MultiSelect({
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Enter") {
+    if (e.key === "Enter" || (e.key === "," && allowCustom)) {
       e.preventDefault();
-      if (filtered[0]) add(filtered[0]);
-      else if (allowCustom) add(input);
+      addCurrentInput();
     } else if (e.key === "Backspace" && !input && selected.length) {
       remove(selected[selected.length - 1]);
     }
@@ -80,9 +95,21 @@ export function MultiSelect({
             onFocus={() => setOpen(true)}
             onBlur={() => setTimeout(() => setOpen(false), 150)}
             onKeyDown={onKeyDown}
-            placeholder={selected.length ? "" : placeholder}
+            placeholder={selected.length ? "Add another…" : placeholder}
             className="flex-1 min-w-[8rem] bg-transparent outline-none text-sm"
           />
+          {input.trim().length > 0 && (
+            <button
+              type="button"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                addCurrentInput();
+              }}
+              className="text-xs rounded-md bg-blue-600 hover:bg-blue-700 text-white px-2 py-0.5"
+            >
+              + Add
+            </button>
+          )}
         </div>
         {open && filtered.length > 0 && (
           <ul className="absolute z-10 mt-1 max-h-48 w-full overflow-auto rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 shadow-lg">
@@ -90,7 +117,7 @@ export function MultiSelect({
               <li key={s}>
                 <button
                   type="button"
-                  onClick={() => add(s)}
+                  onClick={() => addMany([s])}
                   className="block w-full text-left px-3 py-1.5 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800"
                 >
                   {s}
@@ -100,11 +127,9 @@ export function MultiSelect({
           </ul>
         )}
       </div>
-      {allowCustom && (
-        <p className="text-xs text-neutral-500">
-          Type and press Enter to add custom values.
-        </p>
-      )}
+      <p className="text-xs text-neutral-500">
+        Add multiple — press <kbd className="px-1 rounded bg-neutral-200 dark:bg-neutral-800">Enter</kbd>, type a comma, or paste a comma-separated list.
+      </p>
     </div>
   );
 }
