@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { getPosts } from "@/lib/store";
 import { filterPosts } from "@/lib/filter";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 function parseCsv(value: string | null): string[] {
   if (!value) return [];
   return value

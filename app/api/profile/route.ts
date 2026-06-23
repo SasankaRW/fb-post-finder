@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { getProfile, saveProfile } from "@/lib/store";
 import type { SearchProfile } from "@/lib/types";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 function isStringArray(v: unknown): v is string[] {
   return Array.isArray(v) && v.every((x) => typeof x === "string");
 }

@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { addGroup, getGroups, removeGroup } from "@/lib/store";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 const FB_GROUP_RE = /^https?:\/\/([\w-]+\.)?facebook\.com\/groups\/[^/]+/i;
 
 export async function GET() {
