@@ -74,21 +74,65 @@ When the cookies expire (usually monthly), the scraper run will log "redirected 
 
 ---
 
-### Going to production (Phase 3)
+### Going to production (Phase 3) — Neon Postgres
 
-Vercel's filesystem is read-only at runtime, so once deployed:
+The store auto-switches backends based on `DATABASE_URL`:
 
-- **Reads work fine** — `data/*.json` is bundled at build time; the UI shows the posts that existed at last deploy. Every cron commit triggers a fresh deploy, so this lags ~1 build.
-- **Writes don't work** — editing groups/keywords in the live UI won't persist (API routes will error on `fs.writeFile`).
+- **`DATABASE_URL` not set** → JSON files in `data/` (local dev default, zero setup).
+- **`DATABASE_URL` set** → Neon Postgres (lib/store-pg.ts). Schema is created automatically on first call (`CREATE TABLE IF NOT EXISTS …`).
 
-If you only need the live site to *read* posts and you're OK editing groups locally, the current setup deploys to Vercel as-is. If you want the live site to also edit groups/profile, swap `lib/store.ts` for a Postgres-backed implementation:
+Step-by-step:
 
-1. Sign up at [neon.tech](https://neon.tech) (free tier), create a project, copy the connection string.
-2. `npm i @neondatabase/serverless` and add a `lib/store-pg.ts` with the same exported function shapes.
-3. Set `DATABASE_URL` in Vercel + as a GitHub Actions secret.
-4. Re-export `lib/store.ts` from the PG version.
+**1. Create a Neon database**
+- Sign up at [neon.tech](https://neon.tech) (free tier — 0.5 GB storage, plenty).
+- Create a project. Pick the region closest to your Vercel deployment.
+- Dashboard → "Connection string" → copy the **pooled** connection string (looks like `postgresql://user:pwd@ep-xxx-pooler.region.aws.neon.tech/neondb?sslmode=require`).
 
-The function signatures in `lib/store.ts` were designed to make this swap mechanical.
+**2. Deploy the frontend to Vercel**
+- Push the repo to GitHub if you haven't already.
+- [vercel.com](https://vercel.com) → New Project → import the repo.
+- **Root directory**: set to `screper` (since the project lives in a subfolder).
+- Environment variables → add `DATABASE_URL` with the Neon connection string.
+- Deploy. First deploy creates the tables automatically.
+
+**3. Give the scraper access too**
+The GitHub Actions cron also needs to write to the same DB:
+- Repo → Settings → Secrets and variables → Actions → New secret
+- Name: `DATABASE_URL`, value: same Neon connection string
+
+**4. Update the workflow to pass DATABASE_URL to the scraper**
+
+Edit `.github/workflows/scrape.yml` and add `DATABASE_URL` to the scraper step's `env`:
+
+```yaml
+      - name: Run scraper
+        env:
+          FB_COOKIES: ${{ secrets.FB_COOKIES }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: npm run scrape
+```
+
+Once `DATABASE_URL` is in the env, the scraper writes posts straight to Neon — no more commit-back. You can also drop the "Commit updated posts" step from the workflow.
+
+**Now the data flow is:**
+
+```
+GitHub Actions (every 5h)        Vercel (frontend)
+  Playwright scraper ──writes──►  Neon Postgres ◄──reads── Next.js UI
+```
+
+Editing groups / locations / keywords in the live UI now persists — Vercel writes to Neon, scraper reads groups from Neon on its next run.
+
+**Migrating your existing local data (optional)**
+
+If you've already added some groups locally and want to keep them, the easiest path is just re-add them in the deployed UI. If you have many, you can run a one-off:
+
+```sh
+DATABASE_URL='postgresql://...' npm run dev   # locally, but pointed at Neon
+# Open localhost:3000 and add groups via the UI — they save to Neon.
+```
+
+The function signatures in `lib/store-json.ts` and `lib/store-pg.ts` are identical, so the rest of the code never knows which is active.
 
 ---
 
