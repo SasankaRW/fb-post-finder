@@ -12,7 +12,7 @@ type Props = {
 };
 
 function isLikelyFbGroupUrl(url: string): boolean {
-  return /^https?:\/\/(www\.|m\.)?facebook\.com\/groups\/[^/]+/i.test(url.trim());
+  return /^https?:\/\/([\w-]+\.)?facebook\.com\/groups\/[^/]+/i.test(url.trim());
 }
 
 export function GroupManager({ groups, selectedIds, onToggle, onAdd, onRemove }: Props) {

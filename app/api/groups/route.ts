@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { addGroup, getGroups, removeGroup } from "@/lib/store";
 
-const FB_GROUP_RE = /^https?:\/\/(www\.|m\.)?facebook\.com\/groups\/[^/]+/i;
+const FB_GROUP_RE = /^https?:\/\/([\w-]+\.)?facebook\.com\/groups\/[^/]+/i;
 
 export async function GET() {
   const groups = await getGroups();
