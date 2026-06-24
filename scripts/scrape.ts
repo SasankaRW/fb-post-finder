@@ -118,25 +118,41 @@ async function scrapeGroup(
   type Row = { text: string; permalink: string; author: string | null };
   const byPermalink = new Map<string, Row>();
 
-  // Click every visible "See more" so the full post text is in the DOM before
-  // we read it — otherwise keywords in the truncated tail get missed.
+  // The post body lives in one of FB's "message" wrappers. Comments, reaction
+  // bars and "Like · Reply" chrome are OUTSIDE it, so reading from here keeps
+  // us to the post description only. We list every wrapper FB's Comet web UI
+  // uses; the extractor tries them in order and falls back if none match.
+  const MESSAGE_SELECTOR = [
+    '[data-ad-comet-preview="message"]',
+    '[data-ad-preview="message"]',
+    '[data-ad-rendering-role="story_message"]',
+  ].join(", ");
+
+  // Click only the "See more" that belongs to a post message (scoped inside the
+  // message wrapper) so the full description is in the DOM — and so we never
+  // expand comment threads.
   const expandSeeMore = async () => {
     try {
-      const clicked = await page.evaluate((labels: string[]) => {
-        let n = 0;
-        const controls = document.querySelectorAll<HTMLElement>(
-          'div[role="button"], span[role="button"], a[role="button"]',
-        );
-        controls.forEach((el) => {
-          const t = (el.textContent || "").trim().toLowerCase();
-          // Exact-match only — avoids hitting "See more comments", reactions, etc.
-          if (labels.includes(t)) {
-            el.click();
-            n++;
-          }
-        });
-        return n;
-      }, SEE_MORE_LABELS);
+      const clicked = await page.evaluate(
+        ({ labels, messageSelector }: { labels: string[]; messageSelector: string }) => {
+          let n = 0;
+          const messages = document.querySelectorAll<HTMLElement>(messageSelector);
+          messages.forEach((msg) => {
+            const controls = msg.querySelectorAll<HTMLElement>(
+              'div[role="button"], span[role="button"], a[role="button"]',
+            );
+            controls.forEach((el) => {
+              const t = (el.textContent || "").trim().toLowerCase();
+              if (labels.includes(t)) {
+                el.click();
+                n++;
+              }
+            });
+          });
+          return n;
+        },
+        { labels: SEE_MORE_LABELS, messageSelector: MESSAGE_SELECTOR },
+      );
       if (clicked > 0) await page.waitForTimeout(700);
     } catch {
       // Expansion is best-effort; never let it abort a scrape.
@@ -145,24 +161,50 @@ async function scrapeGroup(
 
   const harvest = async () => {
     await expandSeeMore();
-    const found = await page.locator('div[role="article"]').evaluateAll((articles) => {
-      const out: Array<{ text: string; permalink: string; author: string | null }> = [];
-      for (const a of articles) {
-        const text = (a as HTMLElement).innerText?.trim() ?? "";
-        if (!text || text.length < 40) continue;
-        // Match the post permalink in any of FB's link shapes.
-        const link = (a as HTMLElement).querySelector<HTMLAnchorElement>(
-          'a[href*="/posts/"], a[href*="/permalink/"], a[href*="permalink.php"], a[href*="story_fbid"], a[href*="multi_permalinks"]',
-        );
-        if (!link?.href) continue;
-        const permalink = link.href.split("?")[0];
-        const authorEl = (a as HTMLElement).querySelector<HTMLElement>(
-          'h3 a, h2 a, strong a, [aria-label] strong',
-        );
-        out.push({ text, permalink, author: authorEl?.innerText?.trim() || null });
-      }
-      return out;
-    });
+    const found = await page.locator('div[role="article"]').evaluateAll(
+      (articles, messageSelector) => {
+        const out: Array<{ text: string; permalink: string; author: string | null }> = [];
+        for (const a of articles) {
+          const el = a as HTMLElement;
+
+          // Skip nested articles (comments) — only process top-level posts.
+          if (el.parentElement?.closest('div[role="article"]')) continue;
+
+          // Prefer FB's known post-message wrappers (clean: excludes comments
+          // and chrome by construction).
+          let text = "";
+          const msgEl = el.querySelector<HTMLElement>(messageSelector);
+          if (msgEl) {
+            text = msgEl.innerText?.trim() ?? "";
+          } else {
+            // Fallback for layout variants with no message wrapper: gather the
+            // post's own text blocks, excluding anything inside a nested
+            // comment article. Recovers posts we'd otherwise skip entirely.
+            const nested = Array.from(el.querySelectorAll('div[role="article"]'));
+            const inComment = (n: Node) => nested.some((na) => na !== el && na.contains(n));
+            const blocks = Array.from(el.querySelectorAll<HTMLElement>('div[dir="auto"]'))
+              .filter((b) => !inComment(b))
+              .map((b) => b.innerText.trim())
+              .filter((t) => t.length > 0);
+            text = Array.from(new Set(blocks)).join("\n").trim();
+          }
+          if (!text || text.length < 20) continue;
+
+          // Match the post permalink in any of FB's link shapes.
+          const link = el.querySelector<HTMLAnchorElement>(
+            'a[href*="/posts/"], a[href*="/permalink/"], a[href*="permalink.php"], a[href*="story_fbid"], a[href*="multi_permalinks"]',
+          );
+          if (!link?.href) continue;
+          const permalink = link.href.split("?")[0];
+          const authorEl = el.querySelector<HTMLElement>(
+            'h3 a, h2 a, strong a, [aria-label] strong',
+          );
+          out.push({ text, permalink, author: authorEl?.innerText?.trim() || null });
+        }
+        return out;
+      },
+      MESSAGE_SELECTOR,
+    );
     for (const r of found) {
       // Keep the longest text version we've seen (posts expand "See more" lazily).
       const prev = byPermalink.get(r.permalink);
@@ -174,15 +216,21 @@ async function scrapeGroup(
   for (let i = 0; i < MAX_SCROLLS; i++) {
     await harvest();
     const before = byPermalink.size;
-    await page.mouse.wheel(0, 5000);
+    // Scroll the window itself (more reliable headless than mouse wheel) and
+    // give FB time to fetch + render the next batch.
+    await page.evaluate(() => window.scrollBy(0, document.body.scrollHeight));
     await page.waitForTimeout(SCROLL_DELAY_MS);
+    // Nudge lazy-loaders that only fire on a real wheel event.
+    await page.mouse.wheel(0, 3000);
+    await page.waitForTimeout(400);
     await harvest();
-    // Stop early if several scrolls in a row yield nothing new (end of feed).
+    // Stop early only after several truly empty scrolls (end of feed).
     if (byPermalink.size === before) {
-      if (++stagnantScrolls >= 3) break;
+      if (++stagnantScrolls >= 4) break;
     } else {
       stagnantScrolls = 0;
     }
+    console.log(`    …scroll ${i + 1}: ${byPermalink.size} posts so far`);
   }
 
   await page.close();
